@@ -1,19 +1,20 @@
-/* 
- * Class for decoding the DCF77 signal 
+/*
+ * Class for decoding the DCF77 signal
  *
- * Implemented using the "Pollin DCF1" module with 
+ * Implemented using the "Pollin DCF1" module with
  * with inverted output signal (bit starts on falling edge).
  *
  * This source file can be found under:
- * http://www.github.com/microfarad-de/Dcf
+ * http://www.github.com/arduino-library/Dcf
  *
  * This source file is used by the Nixie Clock Arduino firmware
  * found under http://www.github.com/microfarad-de/nixie-clock
- * 
+ *
  * Please visit:
  *   http://www.microfarad.de
  *   http://www.github.com/microfarad-de
- *   
+ *   http://www.github.com/arduino-library
+ *
  * Copyright (C) 2019 Karim Hraibi (khraibi at gmail.com)
  *
  * This program is free software: you can redistribute it and/or modify
@@ -76,7 +77,7 @@ class DcfClass {
      */
     void resumeReception (void);
 
-    
+
     /*
      * Read the DCF time
      * This method must be called in a fast loop until it returns 0 for success.
@@ -119,16 +120,16 @@ class DcfClass {
      * Used for debug purposes
      */
     uint32_t lastIdx = 0;
-    
+
     /*
      * Private variables used by the main ISR, thus need to be declared as public.
      */
     volatile uint8_t dcfPin;
     volatile uint32_t startEdgeTs = 0;
-    volatile DcfBit_e dcfBit = DCF_BIT_NONE; 
+    volatile DcfBit_e dcfBit = DCF_BIT_NONE;
     volatile uint8_t rxFlag = 0;
     volatile uint8_t startEdge;
-    
+
   private:
     /*
      * Private variables

@@ -1,19 +1,20 @@
-/* 
- * Class for decoding the DCF77 signal 
+/*
+ * Class for decoding the DCF77 signal
  *
- * Implemented using the "Pollin DCF1" module with 
+ * Implemented using the "Pollin DCF1" module with
  * with inverted output signal (bit starts on falling edge).
  *
  * This source file can be found under:
- * http://www.github.com/microfarad-de/Dcf
+ * http://www.github.com/arduino-library/Dcf
  *
  * This source file is used by the Nixie Clock Arduino firmware
  * found under http://www.github.com/microfarad-de/nixie-clock
- * 
+ *
  * Please visit:
  *   http://www.microfarad.de
  *   http://www.github.com/microfarad-de
- *   
+ *   http://www.github.com/arduino-library
+ *
  * Copyright (C) 2019 Karim Hraibi (khraibi at gmail.com)
  *
  * This program is free software: you can redistribute it and/or modify
@@ -42,7 +43,7 @@
 //#define VERBOSE
 
 // use these macros for printing to serial port
-#ifdef SERIAL_DEBUG  
+#ifdef SERIAL_DEBUG
   #define PRINT(...)   Serial.print   (__VA_ARGS__)
   #define PRINTLN(...) Serial.println (__VA_ARGS__)
 #else
@@ -73,7 +74,7 @@ void DcfClass::initialize (uint8_t dcfPin, uint8_t bitStart, uint8_t dcfPinMode)
   PRINTLN (" ");
 
   this->interrupt = digitalPinToInterrupt (dcfPin);
-  attachInterrupt (interrupt, dcfIsr, CHANGE); 
+  attachInterrupt (interrupt, dcfIsr, CHANGE);
   this->isConfigured = true;
 }
 /*********/
@@ -84,24 +85,24 @@ void DcfClass::initialize (uint8_t dcfPin, uint8_t bitStart, uint8_t dcfPinMode)
  * Read the DCF time
  ***********************************/
 uint8_t DcfClass::getTime ( void) {
-  
+
   uint8_t rv = 41;
   cli();
   DcfBit_e bit = dcfBit;
   sei();
-  
+
   // too many bits -> restart
-  if (idx >= DCF_BIT_COUNT) { 
+  if (idx >= DCF_BIT_COUNT) {
     PRINT   ("many bits... idx = ");
     PRINTLN (idx, DEC);
     idx = 0;
     rv = 31;
   }
   // synchronization bit detected
-  else if (bit == DCF_BIT_SYNC) { 
+  else if (bit == DCF_BIT_SYNC) {
 
     // full word of 59 bits received -> verify
-    if (idx == DCF_BIT_COUNT - 1) { 
+    if (idx == DCF_BIT_COUNT - 1) {
       bits[idx] = DCF_BIT_LOW;
       cli();
       dcfBit = DCF_BIT_NONE;
@@ -113,7 +114,7 @@ uint8_t DcfClass::getTime ( void) {
       PRINT   ("verify = ");
       PRINTLN (rv, DEC);
       idx = 0;
-    } 
+    }
     // too few bits -> restart
     else {
       cli();
@@ -127,19 +128,19 @@ uint8_t DcfClass::getTime ( void) {
     }
   }
   // received a new bit
-  else if (bit == DCF_BIT_HIGH || bit == DCF_BIT_LOW) { 
+  else if (bit == DCF_BIT_HIGH || bit == DCF_BIT_LOW) {
     bits[idx] = bit;
     lastBit = bit;
     cli();
-    dcfBit = DCF_BIT_NONE; 
+    dcfBit = DCF_BIT_NONE;
     sei();
-    idx++; 
-    lastIdx = idx; 
-    rv = 33;        
+    idx++;
+    lastIdx = idx;
+    rv = 33;
   #ifdef VERBOSE
     PRINT   (" - ");
     PRINTLN (idx, DEC);
-  #endif    
+  #endif
   }
 
   return rv;
@@ -152,7 +153,7 @@ uint8_t DcfClass::getTime ( void) {
  * Pause DCF reception
  ***********************************/
 void DcfClass::pauseReception (void) {
-  if (!isConfigured) return;  
+  if (!isConfigured) return;
   detachInterrupt (interrupt);
   lastIrqTrigger = !startEdge;
 }
@@ -164,8 +165,8 @@ void DcfClass::pauseReception (void) {
  * Resume DCF reception
  ***********************************/
 void DcfClass::resumeReception (void) {
-  if (!isConfigured) return;  
-  attachInterrupt (interrupt, dcfIsr, CHANGE); 
+  if (!isConfigured) return;
+  attachInterrupt (interrupt, dcfIsr, CHANGE);
 }
 /*********/
 
@@ -183,13 +184,13 @@ void DcfClass::resumeReception (void) {
 void dcfIsr () {
   uint32_t delta;
   uint32_t ts;
-  uint8_t dcfPinValue; 
-  
+  uint8_t dcfPinValue;
+
   ts = millis ();
   dcfPinValue = digitalRead (Dcf.dcfPin);
   Dcf.lastIrqTrigger = dcfPinValue;   // store the value of of input pin for later use
-  
-  if (dcfPinValue == Dcf.startEdge) { 
+
+  if (dcfPinValue == Dcf.startEdge) {
     delta = ts - Dcf.startEdgeTs;                                   // measure distance between consecutive falling edges
     if      (delta > 2050) { ISR_PRINT }                            // not valid but needed for avoiding deadlock
     else if (delta > 1950) { Dcf.dcfBit = DCF_BIT_SYNC; ISR_PRINT } // no falling edge for 2s = sync
@@ -197,9 +198,9 @@ void dcfIsr () {
     else if (delta > 950)  { ISR_PRINT }                            // expected falling edge every 1s
     else                   { return; }
     Dcf.startEdgeTs = ts;
-    Dcf.rxFlag = 0; 
+    Dcf.rxFlag = 0;
   }
-  else { 
+  else {
     delta = ts - Dcf.startEdgeTs;                                                 // measure pulse width
     if  (Dcf.rxFlag == 1) { return; }                                             // reject any subsequent pulses until the next bit starts
     /* else if (delta > 260) { return; } */
@@ -207,7 +208,7 @@ void dcfIsr () {
     /* else if (delta > 160) { return; } */
     else if (delta >  50) { Dcf.dcfBit = DCF_BIT_LOW;  Dcf.rxFlag = 1; ISR_PRINT} // 100ms pulse width = 0
     else                  { return; }
-  } 
+  }
 }
 /*********/
 
@@ -217,7 +218,7 @@ void dcfIsr () {
  * Verifies the recieved DCF word for correctness
  ***********************************/
 uint8_t DcfClass::verify (void) {
-  
+
   uint8_t i, sum;
   uint8_t minutes = bits[21]*1 + bits[22]*2 + bits[23]*4 + bits[24]*8 + bits[25]*10 + bits[26]*20 + bits[27]*40;
   uint8_t hours   = bits[29]*1 + bits[30]*2 + bits[31]*4 + bits[32]*8 + bits[33]*10 + bits[34]*20;
@@ -227,8 +228,8 @@ uint8_t DcfClass::verify (void) {
   uint8_t year    = bits[50]*1 + bits[51]*2 + bits[52]*4 + bits[53]*8 + bits[54]*10 + bits[55]*20 + bits[56]*40 + bits[57]*80;
   uint8_t cest    = bits[17];
   uint8_t cet     = bits[18];
-  
-#ifdef SERIAL_DEBUG 
+
+#ifdef SERIAL_DEBUG
   if (hours < 10) PRINT ("0"); // add leading zero
   PRINT (hours, DEC);
   PRINT (":");
@@ -251,7 +252,7 @@ uint8_t DcfClass::verify (void) {
   PRINT (cet, DEC);
   PRINTLN (" ");
 #endif
- 
+
   // populate output structure
   currentTm.tm_sec = 0;           // seconds after the minute - [ 0 to 59 ]
   currentTm.tm_min = minutes;     // minutes after the hour - [ 0 to 59 ]
@@ -262,7 +263,7 @@ uint8_t DcfClass::verify (void) {
   currentTm.tm_year = year + 100; // years since 1900
   //currentTm.tm_yday;            // days since January 1 - [ 0 to 365 ]
   //currentTm.tm_isdst = cest;    // Daylight Saving Time flag
-  
+
   // sanity checks
   if (bits[0] != 0)  return 1;
   if (bits[20] != 1) return 2;
@@ -282,7 +283,7 @@ uint8_t DcfClass::verify (void) {
   sum = 0;
   for (i = 21; i <= 28; i++) sum += bits[i];
   if (sum % 2 != 0) return 21;
-  
+
   sum = 0;
   for (i = 29; i <= 35; i++) sum += bits[i];
   if (sum % 2 != 0) return 22;
