@@ -127,7 +127,7 @@ class DcfClass {
     volatile uint32_t startEdgeTs = 0;
     volatile DcfBit_e dcfBit = DCF_BIT_NONE; 
     volatile uint8_t rxFlag = 0;
-    volatile uint8_t startEdge;
+    uint8_t  startEdge;
     
   private:
     /*
