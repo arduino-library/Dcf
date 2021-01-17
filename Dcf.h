@@ -90,7 +90,7 @@ class DcfClass {
      *   21..23 : parity check failed, DCF.currentTm contains invalid data!
      *   31     : too many bits detected
      *   32     : too few bits detected
-     *   33     : a new bit has been detected, value can be found in DCF.lastBit
+     *   33     : a new bit has been detected
      *   41     : detection in progress
      */
     uint8_t getTime (void);
@@ -101,18 +101,11 @@ class DcfClass {
     struct tm currentTm;
 
     /*
-     * Stores the value of the last received DCF bit
+     * Stores the last detected DCF pin edge
      * This variable can be safely reset from outside this class
-     * Example usage: to control the led blinking from outside this class
+     * Possible values: 0, 1
      */
-    DcfBit_e lastBit = DCF_BIT_NONE;
-
-    /*
-     * Stores the event that triggered the last interrupt
-     * This variable can be safely reset from outside this class
-     * Possible values: HIGH, LOW
-     */
-    volatile uint8_t lastIrqTrigger;
+    uint8_t lastEdge;
 
     /*
      * Index of the last received DCF bit
@@ -122,17 +115,17 @@ class DcfClass {
     uint32_t lastIdx = 0;
 
     /*
-     * Private variables used by the main ISR, thus need to be declared as public.
+     * DCF bit start edge
+     * 0: falling edge
+     * 1: rising edge
      */
-    uint8_t dcfPin;
     uint8_t  startEdge;
-    volatile DcfBit_e dcfBit = DCF_BIT_NONE;
 
   private:
-    /*
-     * Private variables
-     */
-    bool isConfigured = false;
+    DcfBit_e readBit (void);
+    bool configured = false;
+    bool active = false;
+    uint8_t dcfPin;
     uint8_t interrupt;
     uint8_t verify (void);
     uint8_t ledPin;

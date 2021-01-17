@@ -40,7 +40,6 @@
  */
 //#define SERIAL_DEBUG
 //#define SERIAL_BAUD 115200
-//#define VERBOSE
 
 // use these macros for printing to serial port
 #ifdef SERIAL_DEBUG
@@ -52,7 +51,6 @@
 #endif
 
 
-void dcfIsr (void);
 DcfClass Dcf;
 
 
@@ -73,9 +71,8 @@ void DcfClass::initialize (uint8_t dcfPin, uint8_t bitStart, uint8_t dcfPinMode)
   PRINTLN ("+ + + D C F + + +");
   PRINTLN (" ");
 
-  this->interrupt = digitalPinToInterrupt (dcfPin);
-  attachInterrupt (interrupt, dcfIsr, CHANGE);
-  this->isConfigured = true;
+  this->configured = true;
+  this->active = true;
 }
 /*********/
 
@@ -87,9 +84,8 @@ void DcfClass::initialize (uint8_t dcfPin, uint8_t bitStart, uint8_t dcfPinMode)
 uint8_t DcfClass::getTime ( void) {
 
   uint8_t rv = 41;
-  cli();
-  DcfBit_e bit = dcfBit;
-  sei();
+
+  DcfBit_e bit = readBit ();
 
   // too many bits -> restart
   if (idx >= DCF_BIT_COUNT) {
@@ -104,10 +100,6 @@ uint8_t DcfClass::getTime ( void) {
     // full word of 59 bits received -> verify
     if (idx == DCF_BIT_COUNT - 1) {
       bits[idx] = DCF_BIT_LOW;
-      cli();
-      dcfBit = DCF_BIT_NONE;
-      sei();
-      lastBit = DCF_BIT_SYNC;
       rv = verify();
       PRINT   ("full word... idx = ");
       PRINTLN (idx, DEC);
@@ -117,10 +109,6 @@ uint8_t DcfClass::getTime ( void) {
     }
     // too few bits -> restart
     else {
-      cli();
-      dcfBit = DCF_BIT_NONE;
-      sei();
-      lastBit = DCF_BIT_SYNC;
       PRINT   ("few bits... idx = ");
       PRINTLN (idx, DEC);
       idx = 0;
@@ -130,17 +118,9 @@ uint8_t DcfClass::getTime ( void) {
   // received a new bit
   else if (bit == DCF_BIT_HIGH || bit == DCF_BIT_LOW) {
     bits[idx] = bit;
-    lastBit = bit;
-    cli();
-    dcfBit = DCF_BIT_NONE;
-    sei();
     idx++;
     lastIdx = idx;
     rv = 33;
-  #ifdef VERBOSE
-    PRINT   (" - ");
-    PRINTLN (idx, DEC);
-  #endif
   }
 
   return rv;
@@ -153,9 +133,9 @@ uint8_t DcfClass::getTime ( void) {
  * Pause DCF reception
  ***********************************/
 void DcfClass::pauseReception (void) {
-  if (!isConfigured) return;
-  detachInterrupt (interrupt);
-  lastIrqTrigger = !startEdge;
+  if (!configured) return;
+  active = false;
+  lastEdge = !startEdge;
 }
 /*********/
 
@@ -165,61 +145,64 @@ void DcfClass::pauseReception (void) {
  * Resume DCF reception
  ***********************************/
 void DcfClass::resumeReception (void) {
-  if (!isConfigured) return;
-  attachInterrupt (interrupt, dcfIsr, CHANGE);
+  if (!configured) return;
+  active = true;
 }
 /*********/
 
 
-
-#ifdef VERBOSE
-  #define ISR_PRINT()  PRINTLN (delta, DEC);
-#else
-  #define ISR_PRINT()
-#endif
-
 /***********************************
- * ISR triggered on both falling and rising edges of the DCF signal
+ * Read the DCF bit by detecting the 
+ * rising and falling edges of the DCF signal
  ***********************************/
-void dcfIsr () {
+DcfBit_e DcfClass::readBit (void) {
   uint32_t delta;
   uint32_t ts;
   uint8_t dcfPinValue;
+  DcfBit_e dcfBit = DCF_BIT_NONE;
   static uint32_t startEdgeTs = 0;
   static bool reject = false;
   
   ts = millis ();
-  dcfPinValue = digitalRead (Dcf.dcfPin);
-  Dcf.lastIrqTrigger = dcfPinValue;   // store the value of of input pin for later use
+  dcfPinValue = digitalRead (dcfPin);
+  
+  // detect a rising or falling edge
+  if (lastEdge != dcfPinValue) {
+    
+    // store the value of of input pin for later use
+    lastEdge = dcfPinValue;
 
-  if (dcfPinValue == Dcf.startEdge) {
-    // measure distance between consecutive start edges
-    delta = ts - startEdgeTs;
+    if (dcfPinValue == startEdge) {
+      // measure distance between consecutive start edges
+      delta = ts - startEdgeTs;
 
-    // > 2s, not valid but needed for avoiding deadlock
-    if      (delta > 2050) { startEdgeTs = ts; reject = false; ISR_PRINT(); }
-    // no start edge for 2s = sync
-    else if (delta > 1950) { startEdgeTs = ts; reject = false; ISR_PRINT(); Dcf.dcfBit = DCF_BIT_SYNC; }
-    // > 1s and < 2s
-    else if (delta > 1050) { /* do nothing */ }
-    // expected start edge every 1s
-    else if (delta >  950) { startEdgeTs = ts; reject = false; ISR_PRINT(); }
-    // < 1s
-    else                   { /* do nothing */ }
+      // > 2s, not valid but needed for avoiding deadlock
+      if      (delta > 2050) { startEdgeTs = ts; reject = false; }
+      // no start edge for 2s = sync
+      else if (delta > 1950) { startEdgeTs = ts; reject = false; dcfBit = DCF_BIT_SYNC; }
+      // > 1s and < 2s
+      else if (delta > 1050) { /* do nothing */ }
+      // expected start edge every 1s
+      else if (delta >  950) { startEdgeTs = ts; reject = false; }
+      // < 1s
+      else                   { /* do nothing */ }
+    }
+    else {
+      // measure pulse width
+      delta = ts - startEdgeTs;
+
+      // reject any subsequent pulses until the next bit starts
+      if   (reject == true) { /* do nothing */ }
+      // 200ms pulse width - bit 1
+      else if (delta > 175) { reject = true; dcfBit = DCF_BIT_HIGH; }
+      // 100ms pulse width - bit 0
+      else if (delta >  50) { reject = true; dcfBit = DCF_BIT_LOW; } 
+      // < 100ms
+      else                  { /* do nothing */ }
+    } 
   }
-  else {
-    // measure pulse width
-    delta = ts - startEdgeTs;
-
-    // reject any subsequent pulses until the next bit starts
-    if   (reject == true) { /* do nothing */ }
-    // 200ms pulse width - bit 1
-    else if (delta > 175) { reject = true; ISR_PRINT(); Dcf.dcfBit = DCF_BIT_HIGH; }
-    // 100ms pulse width - bit 0
-    else if (delta >  50) { reject = true; ISR_PRINT(); Dcf.dcfBit = DCF_BIT_LOW; } 
-    // < 100ms
-    else                  { /* do nothing */ }
-  }
+  
+  return dcfBit;
 }
 /*********/
 
