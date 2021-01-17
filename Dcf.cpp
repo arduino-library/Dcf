@@ -173,9 +173,9 @@ void DcfClass::resumeReception (void) {
 
 
 #ifdef VERBOSE
-  #define ISR_PRINT  PRINTLN (delta, DEC);
+  #define ISR_PRINT()  PRINTLN (delta, DEC);
 #else
-  #define ISR_PRINT
+  #define ISR_PRINT()
 #endif
 
 /***********************************
@@ -185,29 +185,40 @@ void dcfIsr () {
   uint32_t delta;
   uint32_t ts;
   uint8_t dcfPinValue;
-
+  static uint32_t startEdgeTs = 0;
+  static bool reject = false;
+  
   ts = millis ();
   dcfPinValue = digitalRead (Dcf.dcfPin);
   Dcf.lastIrqTrigger = dcfPinValue;   // store the value of of input pin for later use
 
   if (dcfPinValue == Dcf.startEdge) {
-    delta = ts - Dcf.startEdgeTs;                                   // measure distance between consecutive falling edges
-    if      (delta > 2050) { ISR_PRINT }                            // not valid but needed for avoiding deadlock
-    else if (delta > 1950) { Dcf.dcfBit = DCF_BIT_SYNC; ISR_PRINT } // no falling edge for 2s = sync
-    else if (delta > 1050) { return; }
-    else if (delta > 950)  { ISR_PRINT }                            // expected falling edge every 1s
-    else                   { return; }
-    Dcf.startEdgeTs = ts;
-    Dcf.rxFlag = 0;
+    // measure distance between consecutive start edges
+    delta = ts - startEdgeTs;
+
+    // > 2s, not valid but needed for avoiding deadlock
+    if      (delta > 2050) { startEdgeTs = ts; reject = false; ISR_PRINT(); }
+    // no start edge for 2s = sync
+    else if (delta > 1950) { startEdgeTs = ts; reject = false; ISR_PRINT(); Dcf.dcfBit = DCF_BIT_SYNC; }
+    // > 1s and < 2s
+    else if (delta > 1050) { /* do nothing */ }
+    // expected start edge every 1s
+    else if (delta >  950) { startEdgeTs = ts; reject = false; ISR_PRINT(); }
+    // < 1s
+    else                   { /* do nothing */ }
   }
   else {
-    delta = ts - Dcf.startEdgeTs;                                                 // measure pulse width
-    if  (Dcf.rxFlag == 1) { return; }                                             // reject any subsequent pulses until the next bit starts
-    /* else if (delta > 260) { return; } */
-    else if (delta > 175) { Dcf.dcfBit = DCF_BIT_HIGH; Dcf.rxFlag = 1; ISR_PRINT} // 200ms pulse width = 1
-    /* else if (delta > 160) { return; } */
-    else if (delta >  50) { Dcf.dcfBit = DCF_BIT_LOW;  Dcf.rxFlag = 1; ISR_PRINT} // 100ms pulse width = 0
-    else                  { return; }
+    // measure pulse width
+    delta = ts - startEdgeTs;
+
+    // reject any subsequent pulses until the next bit starts
+    if   (reject == true) { /* do nothing */ }
+    // 200ms pulse width - bit 1
+    else if (delta > 175) { reject = true; ISR_PRINT(); Dcf.dcfBit = DCF_BIT_HIGH; }
+    // 100ms pulse width - bit 0
+    else if (delta >  50) { reject = true; ISR_PRINT(); Dcf.dcfBit = DCF_BIT_LOW; } 
+    // < 100ms
+    else                  { /* do nothing */ }
   }
 }
 /*********/
