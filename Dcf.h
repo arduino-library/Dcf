@@ -38,15 +38,18 @@
 #include <time.h>
 
 /*
- * Total number of bits in a DCF77 word
+ * Activates debug values
  */
-#define DCF_BIT_COUNT 60
-
 #define DCF_DEBUG_VALUES
 
 #ifdef DCF_DEBUG_VALUES
   #define DCF_NUM_DEBUG_VALUES 4
 #endif
+
+/*
+ * Total number of bits in a DCF77 word
+ */
+#define DCF_BIT_COUNT 60
 
 /*
  * DCF bit values
@@ -107,11 +110,11 @@ class DcfClass {
     struct tm currentTm;
 
     /*
-     * Stores the last detected DCF pin edge
-     * This variable can be safely reset from outside this class
-     * Possible values: 0, 1
+     * Stores the detected DCF pulse edge
+     * LOW:  falling edge
+     * HIGH: rising edge
      */
-    uint8_t lastEdge;
+    uint8_t edge;
 
     /*
      * Index of the last received DCF bit
@@ -120,13 +123,6 @@ class DcfClass {
      */
     uint32_t lastIdx = 0;
 
-    /*
-     * DCF bit start edge
-     * 0: falling edge
-     * 1: rising edge
-     */
-    uint8_t  startEdge;
-    
 #ifdef DCF_DEBUG_VALUES
     /*
      * General purpose debug values
@@ -136,14 +132,12 @@ class DcfClass {
     
   private:
     DcfBit_e readBit (void);
-    bool configured = false;
-    bool active = false;
-    uint8_t dcfPin;
-    uint8_t interrupt;
-    uint8_t verify (void);
-    uint8_t ledPin;
-    uint8_t idx = 0;
-    uint8_t bits[DCF_BIT_COUNT];
+    uint8_t  verify (void);
+    bool     configured = false;
+    bool     active     = false;
+    uint8_t  dcfPin;
+    uint8_t  startEdge;
+    uint8_t  bits[DCF_BIT_COUNT];
 };
 
 /*

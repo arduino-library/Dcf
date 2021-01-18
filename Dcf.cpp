@@ -65,9 +65,9 @@ DcfClass Dcf;
  ***********************************/
 void DcfClass::initialize (uint8_t dcfPin, uint8_t bitStart, uint8_t dcfPinMode) {
   uint8_t pinMd;
-  this->dcfPin = dcfPin;
-  this->ledPin = ledPin;
+  this->dcfPin    = dcfPin;
   this->startEdge = (bitStart == RISING ? HIGH : LOW);
+  this->edge      = !this->startEdge;
   pinMd = ( dcfPinMode == INPUT_PULLUP ? INPUT_PULLUP : INPUT);
   pinMode (dcfPin, pinMd);
 #ifdef SERIAL_DEBUG
@@ -88,10 +88,13 @@ void DcfClass::initialize (uint8_t dcfPin, uint8_t bitStart, uint8_t dcfPinMode)
  * Read the DCF time
  ***********************************/
 uint8_t DcfClass::getTime ( void) {
-
-  uint8_t rv = 41;
-
-  DcfBit_e bit = readBit ();
+  static uint8_t idx = 0;
+  uint8_t  rv = 41;
+  DcfBit_e bit; 
+  
+  if (!active || !configured) return rv;
+  
+  bit = readBit ();
 
   // too many bits -> restart
   if (idx >= DCF_BIT_COUNT) {
@@ -141,7 +144,7 @@ uint8_t DcfClass::getTime ( void) {
 void DcfClass::pauseReception (void) {
   if (!configured) return;
   active = false;
-  lastEdge = !startEdge;
+  edge = !startEdge;
 }
 /*********/
 
@@ -157,80 +160,128 @@ void DcfClass::resumeReception (void) {
 /*********/
 
 
+
 /***********************************
  * Read the DCF bit by detecting the 
- * rising and falling edges of the DCF signal
+ * received DCF pulses
  ***********************************/
 DcfBit_e DcfClass::readBit (void) {
-  static DcfBit_e nextBit = DCF_BIT_NONE;
-  static uint32_t startEdgeTs = 0;
-  static bool bitFound = false;
-  DcfBit_e bit = DCF_BIT_NONE;
-  uint8_t edge = 0;
+  static enum {SYNC_E, SYNC, COLLECT_E, COLLECT, PROCESS_E, PROCESS} state = SYNC_E;
+  const  uint16_t numSamples     = 256;                  // number of averaged samples (power of two)
+  const  uint32_t sampleDuration = 210000 / numSamples;  // sample duration = 200000µs / <number of averaged samples>
+  const  uint8_t  bitThreshold   = 50;                   // threshold for high bit detection 
+  static uint32_t startEdgeTs    = 0;                    // timestamp for measuring the start edge of a DCF bit (ms)
+  static uint32_t sampleTsu      = 0;                    // timestamp for measuring the average sample duraion (µs)
+  static uint16_t sampleIdx      = 0;                    // index for counting the average samples
+  static uint32_t avg0           = 0;                    // average value of the first 100ms of a DCF pulse
+  static uint32_t avg1           = 0;                    // average value of the second 100ms of a DCF pulse
+  static bool     bitFound       = false;                // flag that signals the detection of a valid DCF bit
+  static uint8_t  lastEdge       = 0;                    // last detected DCF pulse edge
+  DcfBit_e bit    = DCF_BIT_NONE;                        // return value
+  uint32_t ts     = millis ();                           // millisecond timestamp
+  uint32_t tsu    = micros ();                           // microsecond timestamp
   uint32_t delta;
-  uint32_t ts = millis ();
 
-  edge = digitalRead (dcfPin);
-  
-  // detect a rising or falling edge
-  if (lastEdge != edge) {
+  edge = (digitalRead (dcfPin) == startEdge);
+
+  // main state machine
+  switch (state) {
     
-    // store the value of of input pin for later use
-    lastEdge = edge;
+    // synchronize to DCF signal
+    case SYNC_E:
+      state = SYNC;
+    case SYNC: 
+      // detecte an edge
+      if (edge != lastEdge) {
+        lastEdge = edge;
+        
+        // if DCF pulse start edge was found
+        if (edge == HIGH) {
+          delta = ts - startEdgeTs;
 
-    if (edge == startEdge) {
-      // measure distance between consecutive start edges
-      delta = ts - startEdgeTs;
-
-      // > 2s, not valid but needed for avoiding deadlock
-      if      (delta > 2050) { 
-        startEdgeTs = ts; bitFound = false; 
-        DEBUG(debug[0] = false; debug[1] = false; debug[2] = false;) 
-      }
-      // no start edge for 2s = sync
-      else if (delta > 1950) { 
-        startEdgeTs = ts; bitFound = false; bit = DCF_BIT_SYNC; 
-        DEBUG(debug[0] = false; debug[1] = false; debug[2] = true;) 
-      }
-      // > 1s and < 2s
-      else if (delta > 1050) { 
-        /* do nothing */ 
-      }
-      // expected start edge every 1s
-      else if (delta >  950 && bitFound) { 
-        startEdgeTs = ts; bitFound = false; 
-        DEBUG(debug[0] = false; debug[1] = false; debug[2] = false;) 
+          // > 2s, not valid but needed for avoiding deadlock
+          if (delta > 2050) {
+            DEBUG(debug[0] = false; debug[1] = false; debug[2] = false;)
+            startEdgeTs = ts; 
+            bitFound    = false;
+          }
+          // no start edge for 2s = sync
+          else if (delta > 1950) {
+            DEBUG(debug[0] = false; debug[1] = false; debug[2] = true;)
+            bit         = DCF_BIT_SYNC;
+            startEdgeTs = ts;
+            bitFound    = false;
+            state       = COLLECT_E;
+          }
+          // > 1s and < 2s
+          else if (delta > 1050) {
+            /* do nothing */ 
+          }
+          // expected start edge every 1s
+          else if (delta >  950) {
+            DEBUG(debug[0] = false; debug[1] = false; debug[2] = false;)
+            // assume sync if no DCF bit was detected
+            if (!bitFound) {
+              bit = DCF_BIT_SYNC;
+              DEBUG(debug[2] = true;)
+            }
+            startEdgeTs = ts;
+            bitFound    = false;
+            state       = COLLECT_E;
+          }
+          // < 1s
+          else { 
+            /* do nothing */ 
+          }
         }
-      // < 1s
-      else                   { 
-        /* do nothing */ 
       }
-    }
-    else {
-      // measure pulse width
-      delta = ts - startEdgeTs;
+      break;
+    
+    // collect samples
+    case COLLECT_E:
+      sampleTsu = tsu;
+      sampleIdx = 0;
+      avg0      = 0;
+      avg1      = 0;
+      state     = COLLECT;
+    case COLLECT:
+      if (tsu - sampleTsu >= sampleDuration && sampleIdx < numSamples) {
+        if (sampleIdx < numSamples / 2) {
+          avg0 += edge * 255;
+        }
+        else if (sampleIdx >= numSamples / 2) {
+          avg1 += edge * 255;
+        }
+        sampleTsu += sampleDuration;
+        sampleIdx++;
+      }
+      else if (sampleIdx >= numSamples) {
+        state = PROCESS_E;
+      }
+      break;
+    
+    // process samples
+    case PROCESS_E:
+      state = PROCESS;
+    case PROCESS:
+      avg0 = avg0 / (numSamples / 2);
+      avg1 = avg1 / (numSamples / 2);
       
-      // > 200ms
-      if      (delta > 250) { /* do nothing */ }
-      // 200ms pulse width - bit 1
-      else if (delta > 175) { nextBit = DCF_BIT_HIGH; }
-      // 100ms pulse width - bit 0
-      else if (delta >  50) { nextBit = DCF_BIT_LOW; } 
-      // < 100ms
-      else                  { /* do nothing */ }
-    } 
-  }
-  
-  // wait for 200ms before returning the bit value
-  if (ts - startEdgeTs > 300 && nextBit != DCF_BIT_NONE) {
-#ifdef DCF_DEBUG_VALUES
-    if (nextBit == DCF_BIT_LOW) debug[0] = true;
-    else                        debug[1] = true;
-#endif
-    bit      = nextBit;
-    nextBit  = DCF_BIT_NONE;
-    bitFound = true;
-  }
+      // long pulse detected
+      if (avg0 > bitThreshold && avg1 > bitThreshold) {
+        bit      = DCF_BIT_HIGH;
+        bitFound = true;
+        DEBUG(debug[1] = true;)
+      }
+      // short pulse detected
+      else if (avg0 > bitThreshold) {
+        bit      = DCF_BIT_LOW;
+        bitFound = true;
+        DEBUG(debug[0] = true;)
+      }
+      state = SYNC_E;
+      break;
+  }; // switch (state);
   
   return bit;
 }
