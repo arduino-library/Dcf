@@ -50,6 +50,12 @@
   #define PRINTLN(...)
 #endif
 
+#ifdef DCF_DEBUG_VALUES
+  #define DEBUG(ARG) ARG
+#else
+  #define DEBUG(ARG)
+#endif
+
 
 DcfClass Dcf;
 
@@ -122,7 +128,7 @@ uint8_t DcfClass::getTime ( void) {
     lastIdx = idx;
     rv = 33;
   }
-
+    
   return rv;
 }
 /*********/
@@ -156,53 +162,77 @@ void DcfClass::resumeReception (void) {
  * rising and falling edges of the DCF signal
  ***********************************/
 DcfBit_e DcfClass::readBit (void) {
-  uint32_t delta;
-  uint32_t ts;
-  uint8_t dcfPinValue;
-  DcfBit_e dcfBit = DCF_BIT_NONE;
+  static DcfBit_e nextBit = DCF_BIT_NONE;
   static uint32_t startEdgeTs = 0;
-  static bool reject = false;
-  
-  ts = millis ();
-  dcfPinValue = digitalRead (dcfPin);
+  static bool bitFound = false;
+  DcfBit_e bit = DCF_BIT_NONE;
+  uint8_t edge = 0;
+  uint32_t delta;
+  uint32_t ts = millis ();
+
+  edge = digitalRead (dcfPin);
   
   // detect a rising or falling edge
-  if (lastEdge != dcfPinValue) {
+  if (lastEdge != edge) {
     
     // store the value of of input pin for later use
-    lastEdge = dcfPinValue;
+    lastEdge = edge;
 
-    if (dcfPinValue == startEdge) {
+    if (edge == startEdge) {
       // measure distance between consecutive start edges
       delta = ts - startEdgeTs;
 
       // > 2s, not valid but needed for avoiding deadlock
-      if      (delta > 2050) { startEdgeTs = ts; reject = false; }
+      if      (delta > 2050) { 
+        startEdgeTs = ts; bitFound = false; 
+        DEBUG(debug[0] = false; debug[1] = false; debug[2] = false;) 
+      }
       // no start edge for 2s = sync
-      else if (delta > 1950) { startEdgeTs = ts; reject = false; dcfBit = DCF_BIT_SYNC; }
+      else if (delta > 1950) { 
+        startEdgeTs = ts; bitFound = false; bit = DCF_BIT_SYNC; 
+        DEBUG(debug[0] = false; debug[1] = false; debug[2] = true;) 
+      }
       // > 1s and < 2s
-      else if (delta > 1050) { /* do nothing */ }
+      else if (delta > 1050) { 
+        /* do nothing */ 
+      }
       // expected start edge every 1s
-      else if (delta >  950) { startEdgeTs = ts; reject = false; }
+      else if (delta >  950 && bitFound) { 
+        startEdgeTs = ts; bitFound = false; 
+        DEBUG(debug[0] = false; debug[1] = false; debug[2] = false;) 
+        }
       // < 1s
-      else                   { /* do nothing */ }
+      else                   { 
+        /* do nothing */ 
+      }
     }
     else {
       // measure pulse width
       delta = ts - startEdgeTs;
-
-      // reject any subsequent pulses until the next bit starts
-      if   (reject == true) { /* do nothing */ }
+      
+      // > 200ms
+      if      (delta > 250) { /* do nothing */ }
       // 200ms pulse width - bit 1
-      else if (delta > 175) { reject = true; dcfBit = DCF_BIT_HIGH; }
+      else if (delta > 175) { nextBit = DCF_BIT_HIGH; }
       // 100ms pulse width - bit 0
-      else if (delta >  50) { reject = true; dcfBit = DCF_BIT_LOW; } 
+      else if (delta >  50) { nextBit = DCF_BIT_LOW; } 
       // < 100ms
       else                  { /* do nothing */ }
     } 
   }
   
-  return dcfBit;
+  // wait for 200ms before returning the bit value
+  if (ts - startEdgeTs > 300 && nextBit != DCF_BIT_NONE) {
+#ifdef DCF_DEBUG_VALUES
+    if (nextBit == DCF_BIT_LOW) debug[0] = true;
+    else                        debug[1] = true;
+#endif
+    bit      = nextBit;
+    nextBit  = DCF_BIT_NONE;
+    bitFound = true;
+  }
+  
+  return bit;
 }
 /*********/
 
@@ -212,7 +242,7 @@ DcfBit_e DcfClass::readBit (void) {
  * Verifies the recieved DCF word for correctness
  ***********************************/
 uint8_t DcfClass::verify (void) {
-
+  uint8_t rv = 0;
   uint8_t i, sum;
   uint8_t minutes = bits[21]*1 + bits[22]*2 + bits[23]*4 + bits[24]*8 + bits[25]*10 + bits[26]*20 + bits[27]*40;
   uint8_t hours   = bits[29]*1 + bits[30]*2 + bits[31]*4 + bits[32]*8 + bits[33]*10 + bits[34]*20;
@@ -259,33 +289,38 @@ uint8_t DcfClass::verify (void) {
   //currentTm.tm_isdst = cest;    // Daylight Saving Time flag
 
   // sanity checks
-  if (bits[0] != 0)  return 1;
-  if (bits[20] != 1) return 2;
-  if (bits[59] != 0) return 3;
-  if (minutes > 59)  return 4;
-  if (hours > 23)    return 5;
-  if (dayM == 0)     return 6;
-  if (dayM > 31)     return 7;
-  if (dayW == 0)     return 8;
-  if (dayW > 7)      return 9;
-  if (month == 0)    return 10;
-  if (month > 12)    return 11;
-  if (year > 99)     return 12;
-  if (cest == cet)   return 13;
+  if (bits[0] != 0)  rv = 1;
+  if (bits[20] != 1) rv = 2;
+  if (bits[59] != 0) rv = 3;
+  if (minutes > 59)  rv = 4;
+  if (hours > 23)    rv = 5;
+  if (dayM == 0)     rv = 6;
+  if (dayM > 31)     rv = 7;
+  if (dayW == 0)     rv = 8;
+  if (dayW > 7)      rv = 9;
+  if (month == 0)    rv = 10;
+  if (month > 12)    rv = 11;
+  if (year > 99)     rv = 12;
+  if (cest == cet)   rv = 13;
 
   // parity checks
   sum = 0;
   for (i = 21; i <= 28; i++) sum += bits[i];
-  if (sum % 2 != 0) return 21;
+  if (sum % 2 != 0) rv = 21;
 
   sum = 0;
   for (i = 29; i <= 35; i++) sum += bits[i];
-  if (sum % 2 != 0) return 22;
+  if (sum % 2 != 0) rv = 22;
 
   sum = 0;
   for (i = 36; i <= 58; i++) sum += bits[i];
-  if (sum % 2 != 0) return 23;
+  if (sum % 2 != 0) rv = 23;
 
-  return 0;
+#ifdef DCF_DEBUG_VALUES
+  if (rv == 0) debug[3] = false;
+  else         debug[3] = true;
+#endif
+
+  return rv;
 }
 /*********/

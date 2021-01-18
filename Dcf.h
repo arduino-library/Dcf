@@ -42,6 +42,12 @@
  */
 #define DCF_BIT_COUNT 60
 
+#define DCF_DEBUG_VALUES
+
+#ifdef DCF_DEBUG_VALUES
+  #define DCF_NUM_DEBUG_VALUES 4
+#endif
+
 /*
  * DCF bit values
  */
@@ -120,7 +126,14 @@ class DcfClass {
      * 1: rising edge
      */
     uint8_t  startEdge;
-
+    
+#ifdef DCF_DEBUG_VALUES
+    /*
+     * General purpose debug values
+     */
+    bool debug[DCF_NUM_DEBUG_VALUES] = { false };
+#endif
+    
   private:
     DcfBit_e readBit (void);
     bool configured = false;
