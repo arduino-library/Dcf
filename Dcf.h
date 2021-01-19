@@ -70,8 +70,8 @@ class DcfClass {
     /*
      * Initialize the DCF receiver
      * Parameters:
-     *   dcfPin     : interrupt-enabled input pin connected to the DCF module (pin 2 or 3 on ATmega328p)
-     *   bitStart   : whether DCF77 bits start with a rising or falling edge, set to RISING or FALLING.
+     *   dcfPin     : digital input pin connected to the DCF module
+     *   bitStart   : whether DCF77 bits start with a rising or falling edge, set to RISING or FALLING
      *   dcfPinMode : whether to use the internal pullup resitor, set to INPUT or INPUT_PULLUP
      */
     void initialize (uint8_t dcfPin, uint8_t bitStart=FALLING, uint8_t dcfPinMode=INPUT);

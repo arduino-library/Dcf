@@ -35,14 +35,10 @@
 #include "Dcf.h"
 
 
-/*
- * Uncomment for activating debug output over the serial port
- */
 //#define SERIAL_DEBUG
-//#define SERIAL_BAUD 115200
 
-// use these macros for printing to serial port
 #ifdef SERIAL_DEBUG
+  #define SERIAL_BAUD  115200
   #define PRINT(...)   Serial.print   (__VA_ARGS__)
   #define PRINTLN(...) Serial.println (__VA_ARGS__)
 #else
@@ -191,7 +187,7 @@ DcfBit_e DcfClass::readBit (void) {
     case SYNC_E:
       state = SYNC;
     case SYNC: 
-      // detecte an edge
+      // detect an edge
       if (edge != lastEdge) {
         lastEdge = edge;
         
