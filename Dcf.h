@@ -40,7 +40,7 @@
 /*
  * Activates debug values
  */
-#define DCF_DEBUG_VALUES
+//#define DCF_DEBUG_VALUES
 
 #ifdef DCF_DEBUG_VALUES
   #define DCF_NUM_DEBUG_VALUES 4
